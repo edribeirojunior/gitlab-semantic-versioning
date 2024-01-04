@@ -4,7 +4,6 @@ import re
 import sys
 import semver
 import subprocess
-import gitlab
 
 def git(*args):
     return subprocess.check_output(["git"] + list(args))
@@ -28,46 +27,24 @@ def extract_merge_request_id_from_commit():
 
     return matches.group(2)
 
-def retrieve_labels_from_merge_request(merge_request_id):
-    project_id = os.environ['CI_PROJECT_ID']
-    gitlab_private_token = os.environ['NPA_PASSWORD']
-
-    gl = gitlab.Gitlab(extract_gitlab_url_from_project_url(), private_token=gitlab_private_token)
-    gl.auth()
-
-    project = gl.projects.get(project_id)
-    merge_request = project.mergerequests.get(merge_request_id)
-
-    return merge_request.labels
-
 def bump(latest):
 
-    minor_bump_label = os.environ.get("MINOR_BUMP_LABEL") or "bump-minor"
-    major_bump_label = os.environ.get("MAJOR_BUMP_LABEL") or "bump-major"
+    merge_request_labels = os.environ.get("CI_COMMIT_MESSAGE")
 
-    merge_request_id = extract_merge_request_id_from_commit()
-    labels = retrieve_labels_from_merge_request(merge_request_id)
+    print(merge_request_labels)
 
-
-
-    if minor_bump_label in labels:
+    if re.search(r'(MINOR|minor)', merge_request_labels):
         return semver.bump_minor(latest)
-    elif major_bump_label in labels:
+    elif re.search(r'(MAJOR|major)', merge_request_labels):
         return semver.bump_major(latest)
     else:
         return semver.bump_patch(latest)
-
-def tag_repo(tag):
-    repository_url = os.environ["CI_REPOSITORY_URL"]
-    username = os.environ["NPA_USERNAME"]
-    password = os.environ["NPA_PASSWORD"]
-
-    push_url = re.sub(r'([a-z]+://)[^@]*(@.*)', rf'\g<1>{username}:{password}\g<2>', repository_url)
-
-    git("fetch", "origin", "refs/tags/*:refs/tags/*", "--prune")
-    git("remote", "set-url", "--push", "origin", push_url)
-    git("tag", tag)
-    git("push", "origin", tag)
+    
+def createVariables(latest):
+    file_input = f"export TAG={latest}"
+    file = open('.variables', 'a')
+    file.write(file_input)
+    file.close()
 
 def main():
     env_list = ["CI_REPOSITORY_URL", "CI_PROJECT_ID", "CI_PROJECT_URL", "CI_PROJECT_PATH", "NPA_USERNAME", "NPA_PASSWORD"]
@@ -85,8 +62,9 @@ def main():
             return 0
 
         version = bump(latest)
+    
 
-    tag_repo(version)
+    createVariables(version)
     print(version)
 
     return 0
